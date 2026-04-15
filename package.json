@@ -1,0 +1,32 @@
+{
+  "name": "pi-buddy",
+  "version": "0.1.0",
+  "description": "A coding companion for pi — ASCII creature that lives in your terminal",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "companion",
+    "tamagotchi",
+    "terminal-pet"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kaikozlov/pi-buddy.git"
+  },
+  "homepage": "https://github.com/kaikozlov/pi-buddy#readme",
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.11",
+    "typescript": "^6.0.2"
+  }
+}
