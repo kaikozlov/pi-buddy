@@ -56,6 +56,7 @@ import {
   allModels,
   invalidateModelCache,
 } from "./speech.ts";
+import { renderLog } from "./message-log.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ export interface CommandCallbacks {
   ensureCompanion(ctx: ExtensionContext): Promise<Companion | undefined>;
   bustCompanionCache(): void;
   refresh(ctx: ExtensionContext): Promise<void>;
-  setReact(ctx: ExtensionContext, r: string | undefined): Promise<void>;
+  setReact(ctx: ExtensionContext, r: string | undefined, source?: "pet" | "scripted" | "error" | "llm" | "direct" | "system"): Promise<void>;
   getEditorState(): {
     editorPetting: boolean;
     setEditorPetting(v: boolean): void;
@@ -157,6 +158,7 @@ export const BUDDY_SUBCOMMANDS: readonly { name: string; description: string; ch
   { name: "dismiss", description: "Remove a buddy from the menagerie (not active)" },
   { name: "collection", description: "Browse all buddies with sprites, stats, and rarity" },
   { name: "release", description: "Release a buddy for 25 treats (not the active one)" },
+  { name: "log", description: "Show recent buddy messages/reactions from this session" },
 ];
 
 export const BUDDY_CHANCE_SUGGESTIONS: readonly { value: string; hint: string }[] = [
@@ -334,6 +336,7 @@ export async function handleBuddyCommand(
       "  /buddy collection     Browse all buddies with sprites, stats, rarity\u2014\u2191\u2193 to navigate, Enter to summon",
       "  /buddy dismiss <id>   Delete a buddy from the menagerie (not the active one)",
       "  /buddy release <id>   Release a buddy for 25 treats (not the active one)",
+      "  /buddy log            Show recent buddy messages from this session",
       "",
       "  /buddy model          Show which model generates buddy comments",
       "  /buddy model <p/m>    Set model \u2014 must resolve to a real model.",
@@ -371,7 +374,7 @@ export async function handleBuddyCommand(
       addTreats(1 * shinyTreatMultiplier(companion));
       es.setEditorPetting(true);
       es.setEditorPetAt(Date.now());
-      await cb.setReact(ctx, petReaction(companion));
+      await cb.setReact(ctx, petReaction(companion), "pet");
       setTimeout(() => {
         es.setEditorPetting(false);
         es.activeBuddyEditor?.invalidateBuddy();
@@ -387,7 +390,7 @@ export async function handleBuddyCommand(
 
     case "on":
       saveConfig({ companionMuted: false });
-      await cb.setReact(ctx, `*${companion.name} peeks back into view*`);
+      await cb.setReact(ctx, `*${companion.name} peeks back into view*`, "system");
       ctx.ui.notify(`${companion.name} is back!`, "info");
       break;
 
@@ -539,7 +542,7 @@ export async function handleBuddyCommand(
       cb.bustCompanionCache();
       bumpGlobalHatch();
       companion = (await cb.ensureCompanion(ctx))!;
-      await cb.setReact(ctx, `*${companion.name} the ${companion.rarity} ${companion.species} hatches!*`);
+      await cb.setReact(ctx, `*${companion.name} the ${companion.rarity} ${companion.species} hatches!*`, "system");
       await showBuddyPanel(ctx, buddyDashboardText(companion), BUDDY_DASHBOARD_WIDTH);
       break;
     }
@@ -626,7 +629,7 @@ export async function handleBuddyCommand(
               cb.bustCompanionCache();
               const c = (await cb.ensureCompanion(ctx))!;
               done(undefined);
-              await cb.setReact(ctx, `*${c.name} arrives*`);
+              await cb.setReact(ctx, `*${c.name} arrives*`, "system");
               ctx.ui.notify(`Summoned ${c.name}`, "info");
             },
             onClose: () => done(undefined),
@@ -690,6 +693,12 @@ export async function handleBuddyCommand(
       deleteBuddy(r.id);
       addTreats(25);
       ctx.ui.notify(`Released ${victim.companion.name} for 25 treats!`, "info");
+      break;
+    }
+
+    // ── Log ───────────────────────────────────────────────────────
+    case "log": {
+      await showBuddyPanel(ctx, renderLog());
       break;
     }
 

@@ -48,6 +48,7 @@ import {
   type CommandCallbacks,
 } from "./src/commands.ts";
 import { shouldComment, createCommentaryState, type CommentaryState } from "./src/commentary.ts";
+import { logMessage, clearLog } from "./src/message-log.ts";
 
 // ── Shared mutable state (editor) ──────────────────────────────────────
 // These variables are owned by index.ts and passed to editor.ts functions
@@ -144,11 +145,13 @@ export default function (pi: ExtensionAPI) {
     if (activeBuddyEditor) activeBuddyEditor.invalidateBuddy();
   };
 
-  const setReact = async (ctx: ExtensionContext, r: string | undefined) => {
+  const setReact = async (ctx: ExtensionContext, r: string | undefined, source?: "pet" | "scripted" | "error" | "llm" | "direct" | "system") => {
     reaction = r;
     if (r) {
       reactionAt = Date.now();
       editorReactionAt = reactionAt;
+      const c = getStoredCompanion();
+      if (c) logMessage({ text: r, at: reactionAt, source: source ?? "system", name: c.name });
     }
     await refresh(ctx);
   };
@@ -206,6 +209,7 @@ export default function (pi: ExtensionAPI) {
     editorReactionAt = 0;
     streaming = false;
     speechHistory.length = 0;
+    clearLog();
     commentaryState = createCommentaryState();
     bumpStat("sessions");
     {
@@ -381,7 +385,7 @@ export default function (pi: ExtensionAPI) {
         if (r) {
           addTreats(2 * shinyTreatMultiplier(c));
           bumpStat("reactionsTriggered");
-          await setReact(ctx, r);
+          await setReact(ctx, r, "error");
           return; // skip normal scripted detection
         }
       }
@@ -436,7 +440,7 @@ export default function (pi: ExtensionAPI) {
     })) {
       bumpStat("reactionsTriggered");
       addTreats(1 * shinyTreatMultiplier(c));
-      await setReact(ctx, r);
+      await setReact(ctx, r, "scripted");
     }
     }); // runSafely
   });
@@ -459,7 +463,7 @@ export default function (pi: ExtensionAPI) {
       const reply = await buddySpeech(ctx, c, `The user directly addressed ${c.name} by name.\n\nUser: ${trunc(lastUser, 500)}`);
       if (reply) {
         bumpStat("commentsMade");
-        await setReact(ctx, reply);
+        await setReact(ctx, reply, "direct");
       }
       return;
     }
@@ -479,7 +483,7 @@ export default function (pi: ExtensionAPI) {
     if (comment) {
       bumpStat("observations");
       addTreats(2 * shinyTreatMultiplier(c));
-      await setReact(ctx, comment);
+      await setReact(ctx, comment, "llm");
     }
     }); // runSafely
   });
