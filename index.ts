@@ -220,22 +220,8 @@ export default function (pi: ExtensionAPI) {
     // Register BuddyEditor (full sprite when wide) and cwd-line buddy on narrow terminals
     if (ctx.hasUI) {
       latestExtensionCtx = ctx;
-      ctx.ui.setEditorComponent((tui, theme, keybindings) =>
-        new BuddyEditor(
-          tui, theme, keybindings,
-          () => ({
-            companion: editorCompanion,
-            reaction: editorReaction,
-            muted: editorMuted,
-            petting: editorPetting,
-            petAt: editorPetAt,
-            tick: editorTick,
-            reactionAt: editorReactionAt,
-          }),
-          (editor) => { activeBuddyEditor = editor; },
-        )
-      );
-      ctx.ui.setFooter((_tui, _piTheme, footerData) => {
+
+      ctx.ui.setFooter((_tui: any, _piTheme: any, footerData: any) => {
         return new BuddyPiFooter(footerData, () => latestExtensionCtx, () => {
           if (editorMuted || !editorCompanion) return undefined;
           const speaking = !!editorReaction && !editorMuted;
@@ -251,6 +237,59 @@ export default function (pi: ExtensionAPI) {
           );
         });
       });
+
+      // Intercept setEditorComponent so that any late editor installation
+      // (e.g. pi-fff's async applyEditorMode) gets immediately re-wrapped
+      // with BuddyEditor. Without this, async extensions that call
+      // setEditorComponent after our initial install would overwrite our editor.
+      const origSetEditor = ctx.ui.setEditorComponent.bind(ctx.ui);
+      const getEditorState = () => ({
+        companion: editorCompanion,
+        reaction: editorReaction,
+        muted: editorMuted,
+        petting: editorPetting,
+        petAt: editorPetAt,
+        tick: editorTick,
+        reactionAt: editorReactionAt,
+      });
+      const onActive = (editor: BuddyEditor) => { activeBuddyEditor = editor; };
+      const makeBuddy = (tui: any, theme: any, keybindings: any) =>
+        new BuddyEditor(tui, theme, keybindings, getEditorState, onActive);
+
+      ctx.ui.setEditorComponent = (factory: any) => {
+        // During shutdown, pass through without re-wrapping
+        if (!latestExtensionCtx) {
+          origSetEditor(factory);
+          return;
+        }
+        // Let the caller install their editor first (pi copies text/autocomplete)
+        origSetEditor(factory);
+        // The newly installed editor is now active but may be wrapped by extensions
+        // like pi-fff with an enhanced autocomplete provider (frecency-ranked @-mentions).
+        // Capture it before we overwrite, since pi's setCustomEditorComponent only
+        // copies the base this.autocompleteProvider, not the enhanced one.
+        let capturedAutocomplete: any;
+        const tui = (activeBuddyEditor as any)?.tui;
+        // editorContainer is tui.children[5] (after header, chat, pending, status, widgetAbove)
+        const editorContainer = tui?.children?.[5];
+        if (editorContainer && "children" in editorContainer) {
+          for (const editorComp of (editorContainer as any).children ?? []) {
+            if ((editorComp as any)?.autocompleteProvider) {
+              capturedAutocomplete = (editorComp as any).autocompleteProvider;
+            }
+          }
+        }
+        // Re-install BuddyEditor on top
+        origSetEditor(makeBuddy);
+        // Restore the captured autocomplete (if any) over the base one pi set
+        if (capturedAutocomplete && typeof (activeBuddyEditor as any)?.setAutocompleteProvider === "function") {
+          (activeBuddyEditor as any).setAutocompleteProvider(capturedAutocomplete);
+        }
+      };
+
+      // Initial install — this sets BuddyEditor now, and any later
+      // setEditorComponent call (e.g. from pi-fff) will re-wrap automatically.
+      origSetEditor(makeBuddy);
     }
 
     ctx.ui.setWidget("pi-buddy", undefined);

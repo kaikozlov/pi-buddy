@@ -255,6 +255,7 @@ export class BuddyTextOverlay implements Component {
 // string-based CustomEditor rendering.
 
 export class BuddyEditor extends CustomEditor {
+
   constructor(
     tui: TUI,
     theme: EditorTheme,
@@ -287,6 +288,7 @@ export class BuddyEditor extends CustomEditor {
     const companion = state.companion;
     const speaking = !!state.reaction && !state.muted;
     const hasBuddy = !!companion && !state.muted;
+
     if (!hasBuddy) return super.render(width);
 
     const fading = speaking && (Date.now() - state.reactionAt) >= (BUBBLE_SHOW - FADE_WINDOW) * TICK_MS;
