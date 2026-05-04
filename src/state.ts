@@ -7,10 +7,38 @@ import type { StoredCompanion } from "./types.ts";
 import type { Species, CompanionBones } from "./types.ts";
 import type { Companion } from "./types.ts";
 
-let STATE_DIR = join(getAgentDir(), "pi-buddy");
+let STATE_DIR = join(getAgentDir(), "extensions", "data", "pi-buddy");
 let CONFIG_FILE = join(STATE_DIR, "config.json");
 let STATS_FILE = join(STATE_DIR, "stats.json");
 let MENAGERIE_FILE = join(STATE_DIR, "menagerie.json");
+
+// ── One-shot migration from legacy path (~/.pi/agent/pi-buddy/) ─────────
+let pathMigrationDone = false;
+
+function migrateFromLegacyPath(): void {
+  if (pathMigrationDone) return;
+  pathMigrationDone = true;
+
+  const legacyDir = join(getAgentDir(), "pi-buddy");
+  if (!existsSync(legacyDir)) return;
+  if (existsSync(STATE_DIR)) return; // already migrated or new data exists
+
+  try {
+    mkdirSync(STATE_DIR, { recursive: true });
+    for (const file of ["config.json", "stats.json", "menagerie.json"]) {
+      const src = join(legacyDir, file);
+      const dst = join(STATE_DIR, file);
+      if (existsSync(src)) {
+        writeFileSync(dst, readFileSync(src));
+      }
+    }
+  } catch {
+    // Migration is best-effort; don't block startup
+  }
+}
+
+// Run migration eagerly on module load
+migrateFromLegacyPath();
 
 /** @internal Override the state directory (for testing only). */
 export function _setStateDir(dir: string): void {
@@ -18,7 +46,7 @@ export function _setStateDir(dir: string): void {
   CONFIG_FILE = join(STATE_DIR, "config.json");
   STATS_FILE = join(STATE_DIR, "stats.json");
   MENAGERIE_FILE = join(STATE_DIR, "menagerie.json");
-  migrationDone = false;
+  pathMigrationDone = false;
 }
 
 export interface BuddyConfig {
