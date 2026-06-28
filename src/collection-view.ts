@@ -7,7 +7,7 @@
  * grid into one interactive view.
  */
 
-import { type Theme } from "@mariozechner/pi-coding-agent";
+import { type Theme } from "@earendil-works/pi-coding-agent";
 import {
   Key,
   matchesKey,
@@ -15,7 +15,7 @@ import {
   visibleWidth,
   type Component,
   type Focusable,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import { RARITY_STARS, type Rarity } from "./types.ts";
 import { renderSprite } from "./sprites.ts";
 import {

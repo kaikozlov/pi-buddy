@@ -1,5 +1,5 @@
-import { completeSimple, type Api, type Context, type Model } from "@mariozechner/pi-ai";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { completeSimple, type Api, type Context, type Model } from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Companion, Rarity, Species, StatName } from "./types.ts";
 import { loadConfig } from "./state.ts";
 

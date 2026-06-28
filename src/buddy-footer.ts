@@ -3,8 +3,8 @@ import {
   type AgentSession,
   type ExtensionContext,
   type ReadonlyFooterDataProvider,
-} from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth, type Component } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";

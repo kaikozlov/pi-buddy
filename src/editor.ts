@@ -5,7 +5,7 @@
  * sprite alongside the input box, plus the framed overlay panel, lives here.
  */
 
-import { CustomEditor, Theme } from "@mariozechner/pi-coding-agent";
+import { CustomEditor, Theme } from "@earendil-works/pi-coding-agent";
 import {
   getKeybindings,
   truncateToWidth,
@@ -14,7 +14,7 @@ import {
   type Component,
   type EditorTheme,
   type TUI,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import { renderFace, renderSprite, spriteFrameCount } from "./sprites.ts";
 import { type Companion } from "./types.ts";
 
