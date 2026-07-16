@@ -1,4 +1,5 @@
-import { complete, type Api, type Context, type Model } from "@earendil-works/pi-ai";
+import type { Api, Context, Model } from "@earendil-works/pi-ai";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CompanionBones } from "./types.ts";
 
 const FALLBACK_NAMES = [
@@ -75,7 +76,11 @@ export function generateSoulPrompt(bones: CompanionBones): string {
   ].filter(Boolean).join("\n");
 }
 
-export async function generateSoul(model: Model<Api>, bones: CompanionBones): Promise<{ name: string; personality: string }> {
+export async function generateSoul(
+  modelRuntime: ModelRuntime,
+  model: Model<Api>,
+  bones: CompanionBones,
+): Promise<{ name: string; personality: string }> {
   const fallback = {
     name: generateFallbackName(),
     personality: generateFallbackPersonality(bones),
@@ -91,7 +96,7 @@ export async function generateSoul(model: Model<Api>, bones: CompanionBones): Pr
   };
 
   try {
-    const result = await complete(model, context, { maxTokens: 200 });
+    const result = await modelRuntime.complete(model, context, { maxTokens: 200 });
     const text = result.content
       .filter((c): c is { type: "text"; text: string } => c.type === "text")
       .map(c => c.text)

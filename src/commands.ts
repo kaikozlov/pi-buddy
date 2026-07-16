@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   fuzzyFilter,
   type AutocompleteItem,
@@ -62,6 +62,7 @@ import { renderLog } from "./message-log.ts";
 
 /** Callbacks that index.ts provides so commands.ts stays stateless. */
 export interface CommandCallbacks {
+  modelRuntime: ModelRuntime;
   ensureCompanion(ctx: ExtensionContext): Promise<Companion | undefined>;
   bustCompanionCache(): void;
   refresh(ctx: ExtensionContext): Promise<void>;
@@ -139,6 +140,7 @@ function buildCollectionEntries(): CollectionEntry[] {
 // ── /buddy slash autocomplete (subcommands + model list like /model) ──
 
 let autocompleteContextRef: ExtensionContext | undefined;
+let autocompleteModelRuntimeRef: ModelRuntime | undefined;
 
 export const BUDDY_SUBCOMMANDS: readonly { name: string; description: string; cheat?: boolean }[] = [
   { name: "show", description: "Card + this buddy stats + global hatches (3 cols)" },
@@ -203,8 +205,8 @@ function buddySubcommandSuggestions(partial: string): AutocompleteItem[] {
   }));
 }
 
-function buddyModelArgumentItems(ctx: ExtensionContext, tail: string): AutocompleteItem[] | null {
-  const models = allModels(ctx);
+function buddyModelArgumentItems(modelRuntime: ModelRuntime, tail: string): AutocompleteItem[] | null {
+  const models = allModels(modelRuntime);
   if (models.length === 0) return null;
   const items = models.map(m => ({
     id: m.id,
@@ -236,8 +238,8 @@ export function buddyArgumentCompletions(argumentPrefix: string): AutocompleteIt
 
   switch (firstKey) {
     case "model": {
-      if (!ctx) return null;
-      const items = buddyModelArgumentItems(ctx, tail);
+      if (!ctx || !autocompleteModelRuntimeRef) return null;
+      const items = buddyModelArgumentItems(autocompleteModelRuntimeRef, tail);
       return items?.length ? items : null;
     }
     case "species": {
@@ -292,8 +294,12 @@ export function buddyArgumentCompletions(argumentPrefix: string): AutocompleteIt
 
 // ── Command handler ────────────────────────────────────────────────────
 
-export function setAutocompleteContext(ctx: ExtensionContext | undefined) {
+export function setAutocompleteContext(
+  ctx: ExtensionContext | undefined,
+  modelRuntime?: ModelRuntime,
+) {
   autocompleteContextRef = ctx;
+  autocompleteModelRuntimeRef = modelRuntime;
 }
 
 export async function handleBuddyCommand(
@@ -431,7 +437,7 @@ export async function handleBuddyCommand(
     case "model": {
       if (!rest) {
         // Show current model with resolved info
-        const resolved = resolveBuddyModel(ctx);
+        const resolved = resolveBuddyModel(cb.modelRuntime, ctx);
         if (resolved) {
           const cfg = loadConfig();
           const source = cfg.commentModel ? "configured" : (ctx.model ? "session" : "cheapest");
@@ -449,8 +455,8 @@ export async function handleBuddyCommand(
             `  Pattern:   ${cfg.commentModel ?? "(auto)"}`,
             "",
             "  Available models:",
-            ...allModels(ctx).slice(0, 15).map(m => `    ${m.provider}/${m.id}`),
-            allModels(ctx).length > 15 ? `    \u2026 and ${allModels(ctx).length - 15} more` : "",
+            ...allModels(cb.modelRuntime).slice(0, 15).map(m => `    ${m.provider}/${m.id}`),
+            allModels(cb.modelRuntime).length > 15 ? `    \u2026 and ${allModels(cb.modelRuntime).length - 15} more` : "",
           ].join("\n"));
         } else {
           await showBuddyPanel(ctx, [
@@ -459,17 +465,17 @@ export async function handleBuddyCommand(
             "  \u26A0 No model resolved.",
             "",
             "  Available models:",
-            ...allModels(ctx).slice(0, 10).map(m => `    ${m.provider}/${m.id}`),
-            allModels(ctx).length > 10 ? `    \u2026 and ${allModels(ctx).length - 10} more` : "",
+            ...allModels(cb.modelRuntime).slice(0, 10).map(m => `    ${m.provider}/${m.id}`),
+            allModels(cb.modelRuntime).length > 10 ? `    \u2026 and ${allModels(cb.modelRuntime).length - 10} more` : "",
           ].join("\n"));
         }
         break;
       }
 
       // Validate before saving
-      const match = validateModelInput(ctx, rest);
+      const match = validateModelInput(cb.modelRuntime, rest);
       if (!match) {
-        const available = allModels(ctx);
+        const available = allModels(cb.modelRuntime);
         ctx.ui.notify(
           `No model matched "${rest}". Available: ${available.slice(0, 5).map(m => m.provider + "/" + m.id).join(", ")}${available.length > 5 ? ", \u2026" : ""}`,
           "warning",
@@ -526,9 +532,9 @@ export async function handleBuddyCommand(
       }
       spendTreats(50);
       const fresh = rollFresh();
-      const resolved = resolveBuddyModel(ctx);
+      const resolved = resolveBuddyModel(cb.modelRuntime, ctx);
       const soul = resolved
-        ? await generateSoul(resolved.model, fresh.bones).catch(() => undefined)
+        ? await generateSoul(cb.modelRuntime, resolved.model, fresh.bones).catch(() => undefined)
         : undefined;
       const newStored = {
         id: randomUUID(),

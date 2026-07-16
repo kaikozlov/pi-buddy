@@ -2,6 +2,7 @@ import {
   FooterComponent,
   type AgentSession,
   type ExtensionContext,
+  type ModelRuntime,
   type ReadonlyFooterDataProvider,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
@@ -23,7 +24,10 @@ function getThinkingLevel(sessionManager: ExtensionContext["sessionManager"]): s
   return "off";
 }
 
-function createFooterSessionProxy(getCtx: () => ExtensionContext | undefined): AgentSession {
+function createFooterSessionProxy(
+  modelRuntime: ModelRuntime,
+  getCtx: () => ExtensionContext | undefined,
+): AgentSession {
   return new Proxy({} as AgentSession, {
     get(_target, prop) {
       const ctx = getCtx();
@@ -33,8 +37,8 @@ function createFooterSessionProxy(getCtx: () => ExtensionContext | undefined): A
           return { model: ctx.model, thinkingLevel: getThinkingLevel(ctx.sessionManager) };
         case "sessionManager":
           return ctx.sessionManager;
-        case "modelRegistry":
-          return ctx.modelRegistry;
+        case "modelRuntime":
+          return modelRuntime;
         case "getContextUsage":
           return () => ctx.getContextUsage();
         default:
@@ -55,11 +59,12 @@ export class BuddyPiFooter implements Component {
   invalidate(): void {}
 
   constructor(
+    modelRuntime: ModelRuntime,
     footerData: ReadonlyFooterDataProvider,
     private readonly getCtx: () => ExtensionContext | undefined,
     private readonly getBuddyLabel: () => string | undefined,
   ) {
-    this.inner = new FooterComponent(createFooterSessionProxy(getCtx), footerData);
+    this.inner = new FooterComponent(createFooterSessionProxy(modelRuntime, getCtx), footerData);
   }
 
   dispose(): void {

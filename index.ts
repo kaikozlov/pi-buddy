@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   buddySpeech,
   resolveBuddyModel,
@@ -68,7 +68,10 @@ let activeBuddyEditor: BuddyEditor | undefined;
 
 let companionCache: Companion | undefined;
 
-async function ensureCompanion(ctx: ExtensionContext): Promise<Companion | undefined> {
+async function ensureCompanion(
+  ctx: ExtensionContext,
+  modelRuntime: ModelRuntime,
+): Promise<Companion | undefined> {
   if (companionCache) return companionCache;
   const stored = getStoredCompanion();
   const userId = resolveBuddyUserId();
@@ -86,9 +89,9 @@ async function ensureCompanion(ctx: ExtensionContext): Promise<Companion | undef
 
   // First hatch - try to generate soul
   const fresh = rollFresh();
-  const resolved = resolveBuddyModel(ctx);
+  const resolved = resolveBuddyModel(modelRuntime, ctx);
   const soul = resolved
-    ? await generateSoul(resolved.model, fresh.bones).catch(() => undefined)
+    ? await generateSoul(modelRuntime, resolved.model, fresh.bones).catch(() => undefined)
     : undefined;
   const storedComp = {
     id: randomUUID(),
@@ -110,7 +113,8 @@ function bustCompanionCache() {
 
 // ── Extension ──────────────────────────────────────────────────────────
 
-export default function (pi: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
+  const modelRuntime = await ModelRuntime.create();
   let timer: ReturnType<typeof setInterval> | undefined;
   /** Fresh session context for BuddyPiFooter (built-in footer is not on-screen when custom footer is set). */
   let latestExtensionCtx: ExtensionContext | undefined;
@@ -139,7 +143,7 @@ export default function (pi: ExtensionAPI) {
     editorMuted = cfg.companionMuted ?? false;
     editorTick = tick;
     if (!streaming) {
-      const c = getStoredCompanion() ? await ensureCompanion(ctx) : undefined;
+      const c = getStoredCompanion() ? await ensureCompanion(ctx, modelRuntime) : undefined;
       editorCompanion = c ?? undefined;
     }
     if (activeBuddyEditor) activeBuddyEditor.invalidateBuddy();
@@ -159,7 +163,8 @@ export default function (pi: ExtensionAPI) {
   // ── /buddy command ───────────────────────────────────────────────────
 
   const cb: CommandCallbacks = {
-    ensureCompanion,
+    modelRuntime,
+    ensureCompanion: (ctx) => ensureCompanion(ctx, modelRuntime),
     bustCompanionCache,
     refresh,
     setReact,
@@ -196,7 +201,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_e, ctx) => {
     await runSafely("session_start", async () => {
-    setAutocompleteContext(ctx);
+    setAutocompleteContext(ctx, modelRuntime);
     introDone = false;
     directPending = false;
     lastUser = "";
@@ -213,7 +218,7 @@ export default function (pi: ExtensionAPI) {
     commentaryState = createCommentaryState();
     bumpStat("sessions");
     {
-      const c = await ensureCompanion(ctx);
+      const c = await ensureCompanion(ctx, modelRuntime);
       addTreats(5 * shinyTreatMultiplier(c ?? {}));
     }
 
@@ -222,7 +227,7 @@ export default function (pi: ExtensionAPI) {
       latestExtensionCtx = ctx;
 
       ctx.ui.setFooter((_tui: any, _piTheme: any, footerData: any) => {
-        return new BuddyPiFooter(footerData, () => latestExtensionCtx, () => {
+        return new BuddyPiFooter(modelRuntime, footerData, () => latestExtensionCtx, () => {
           if (editorMuted || !editorCompanion) return undefined;
           const speaking = !!editorReaction && !editorMuted;
           const fading =
@@ -354,7 +359,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("input", async (event, ctx) => {
     lastUser = event.text;
-    const c = getStoredCompanion() ? await ensureCompanion(ctx) : undefined;
+    const c = getStoredCompanion() ? await ensureCompanion(ctx, modelRuntime) : undefined;
     directPending = c ? isDirectlyAddressingBuddy(event.text, c) : false;
     return { action: "continue" as const };
   });
@@ -363,7 +368,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", async (event, ctx) => {
     const cfg = loadConfig();
-    const c = getStoredCompanion() ? await ensureCompanion(ctx) : undefined;
+    const c = getStoredCompanion() ? await ensureCompanion(ctx, modelRuntime) : undefined;
     if (!c || cfg.companionMuted) return;
 
     // Inject once for intro, or again if user is directly addressing buddy
@@ -394,7 +399,7 @@ export default function (pi: ExtensionAPI) {
       .join("\n\n");
 
     const cfg = loadConfig();
-    const c = getStoredCompanion() ? await ensureCompanion(ctx) : undefined;
+    const c = getStoredCompanion() ? await ensureCompanion(ctx, modelRuntime) : undefined;
 
     let r: string | undefined;
 
@@ -490,7 +495,7 @@ export default function (pi: ExtensionAPI) {
     await runSafely("message_end", async () => {
     if (event.message.role !== "assistant") return;
     const cfg = loadConfig();
-    const c = getStoredCompanion() ? await ensureCompanion(ctx) : undefined;
+    const c = getStoredCompanion() ? await ensureCompanion(ctx, modelRuntime) : undefined;
     if (!c || cfg.companionMuted) return;
 
     const text = extractText(event.message);
@@ -499,7 +504,7 @@ export default function (pi: ExtensionAPI) {
     // Direct address → always respond
     if (directPending) {
       directPending = false;
-      const reply = await buddySpeech(ctx, c, `The user directly addressed ${c.name} by name.\n\nUser: ${trunc(lastUser, 500)}`);
+      const reply = await buddySpeech(modelRuntime, ctx, c, `The user directly addressed ${c.name} by name.\n\nUser: ${trunc(lastUser, 500)}`);
       if (reply) {
         bumpStat("commentsMade");
         await setReact(ctx, reply, "direct");
@@ -516,7 +521,7 @@ export default function (pi: ExtensionAPI) {
     })) return;
 
     const comment = await buddySpeech(
-      ctx, c,
+      modelRuntime, ctx, c,
       `Recent exchange:\n\nUser: ${trunc(lastUser, 500)}\nAssistant: ${trunc(text, 1200)}\n\nMake one short in-character remark about something specific.`,
     );
     if (comment) {

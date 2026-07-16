@@ -1,5 +1,5 @@
-import { completeSimple, type Api, type Context, type Model } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Api, Context, Model } from "@earendil-works/pi-ai";
+import type { ExtensionContext, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Companion, Rarity, Species, StatName } from "./types.ts";
 import { loadConfig } from "./state.ts";
 
@@ -181,14 +181,11 @@ export function trackSpeech(line: string): void {
 
 // ── Model resolution ───────────────────────────────────────────────────
 //
-// Uses the real ModelRegistry API: getAll(), getAvailable(), find(p, id).
-// Model has .provider, .id, .name, .cost.output.
-//
-// Resolved model is cached per-config to avoid scanning the registry
-// on every comment turn.
+// Uses pi's current ModelRuntime API. Model has .provider, .id, .name, .cost.output.
+// Resolved model is cached per-config to avoid scanning the runtime on every comment turn.
 
-export function allModels(ctx: ExtensionContext): Model<Api>[] {
-  return ctx.modelRegistry?.getAvailable?.() ?? ctx.modelRegistry?.getAll?.() ?? [];
+export function allModels(modelRuntime: ModelRuntime): Model<Api>[] {
+  return [...modelRuntime.getAvailableSnapshot()];
 }
 
 export interface Resolved {
@@ -204,17 +201,16 @@ export function invalidateModelCache() {
 }
 
 /** Resolve the buddy model from config. Returns undefined if nothing works. */
-export function resolveBuddyModel(ctx: ExtensionContext): Resolved | undefined {
+export function resolveBuddyModel(modelRuntime: ModelRuntime, ctx: ExtensionContext): Resolved | undefined {
   const cfg = loadConfig();
   const cacheKey = `${cfg.commentProvider ?? ""}/${cfg.commentModel ?? ""}`;
   if (resolvedCache?.key === cacheKey) return resolvedCache.resolved;
 
-  const registry = ctx.modelRegistry;
-  const available = allModels(ctx);
+  const available = allModels(modelRuntime);
 
-  // 1. Exact provider/id lookup via registry.find()
-  if (cfg.commentProvider && cfg.commentModel && registry?.find) {
-    const exact = registry.find(cfg.commentProvider, cfg.commentModel);
+  // 1. Exact provider/id lookup
+  if (cfg.commentProvider && cfg.commentModel) {
+    const exact = modelRuntime.getModel(cfg.commentProvider, cfg.commentModel);
     if (exact) {
       const r = { model: exact, provider: exact.provider, modelId: exact.id };
       resolvedCache = { key: cacheKey, resolved: r };
@@ -258,18 +254,15 @@ export function resolveBuddyModel(ctx: ExtensionContext): Resolved | undefined {
 
 /** Try to resolve a user-supplied provider/model string to an actual model.
  *  Returns the match or undefined. */
-export function validateModelInput(ctx: ExtensionContext, input: string): Resolved | undefined {
-  const available = allModels(ctx);
-  const registry = ctx.modelRegistry;
+export function validateModelInput(modelRuntime: ModelRuntime, input: string): Resolved | undefined {
+  const available = allModels(modelRuntime);
   const slash = input.indexOf("/");
 
   if (slash >= 0) {
     const p = input.slice(0, slash);
     const m = input.slice(slash + 1);
-    if (registry?.find) {
-      const exact = registry.find(p, m);
-      if (exact) return { model: exact, provider: exact.provider, modelId: exact.id };
-    }
+    const exact = modelRuntime.getModel(p, m);
+    if (exact) return { model: exact, provider: exact.provider, modelId: exact.id };
     // fuzzy match within provider
     const hit = available.find(x => x.provider === p && x.id.toLowerCase().includes(m.toLowerCase()));
     if (hit) return { model: hit, provider: hit.provider, modelId: hit.id };
@@ -294,17 +287,16 @@ export function fmtModel(r: Resolved): string {
 
 // ── Buddy speech (LLM comment) ─────────────────────────────────────────
 
-export async function buddySpeech(ctx: ExtensionContext, c: Companion, prompt: string): Promise<string | null> {
+export async function buddySpeech(
+  modelRuntime: ModelRuntime,
+  ctx: ExtensionContext,
+  c: Companion,
+  prompt: string,
+): Promise<string | null> {
   const release = await speechMutex.lock();
   try {
-    const resolved = resolveBuddyModel(ctx);
+    const resolved = resolveBuddyModel(modelRuntime, ctx);
     if (!resolved) return null;
-
-    // Resolve API key from the model registry (handles OAuth, env vars, etc)
-    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(resolved.model);
-    if (!auth?.ok || !auth.apiKey) return null;
-    const apiKey = auth.apiKey;
-    const headers = auth.headers ?? undefined;
 
     const systemPrompt = buildSpeechPrompt(c);
     const messages: Context["messages"] = [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }];
@@ -312,10 +304,10 @@ export async function buddySpeech(ctx: ExtensionContext, c: Companion, prompt: s
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), SPEECH_TIMEOUT_MS);
     try {
-      const result = await completeSimple(
+      const result = await modelRuntime.completeSimple(
         resolved.model,
         { systemPrompt, messages },
-        { apiKey, headers, signal: controller.signal },
+        { signal: controller.signal },
       );
       const text = result.content
         .filter((b): b is { type: "text"; text: string } => b.type === "text")
